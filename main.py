@@ -4,6 +4,7 @@ import json
 import logging
 import math
 from dataclasses import dataclass
+from pprint import pprint
 from typing import cast
 
 from phonemizer import phonemize
@@ -103,11 +104,17 @@ def get_visemes(phonemes: str) -> list[str]:
 
 
 def calc_frame_data(
-    words: list[Word], phonemes: list[str], viseme_map: dict[str, int]
+    words: list[Word], phonemes: list[str], viseme_map: dict[str, int], stats: bool
 ) -> str:
     logging.info("Calculating frame data...")
 
     output: dict[int, int] = {}
+    vieseme_stats_data: dict[str, int] = {}
+
+    def add_to_output(frame: int, viseme: str):
+        output.setdefault(frame, viseme_map[viseme])
+        if stats:
+            vieseme_stats_data[viseme] = vieseme_stats_data.get(viseme, 0) + 1
 
     for index, word in enumerate(words):
         phoneme = phonemes[index]
@@ -132,7 +139,7 @@ def calc_frame_data(
             gap_frame = calc_frame(now_gap_seconds)
             current_frame = calc_frame(word.start_time)
             for viseme in visemes_no_sli:
-                output.setdefault(current_frame, viseme_map[viseme])
+                add_to_output(current_frame, viseme)
                 current_frame += gap_frame
 
         else:
@@ -143,23 +150,31 @@ def calc_frame_data(
             if radio > 2:
                 radio_floored = math.floor(radio)
                 for i in range(0, visemes_num, radio_floored):
-                    output.setdefault(current_frame, viseme_map[visemes_no_sli[i]])
+                    add_to_output(current_frame, visemes_no_sli[i])
                     current_frame += gap_frame
             else:
                 for viseme in visemes:
                     if duration_count > duration:
                         break
 
-                    output.setdefault(current_frame, viseme_map[viseme])
+                    add_to_output(current_frame, viseme)
                     duration_count += min_gap_seconds
                     current_frame += gap_frame
 
         if visemes[-1] == "sli":
             output[current_frame] = viseme_map["sli"]
+            if stats:
+                vieseme_stats_data["sli"] = vieseme_stats_data.get("sli", 0) + 1
 
     frame_data = "\n".join([f"{frame} {viseme}" for frame, viseme in output.items()])
 
     logging.info("Calculate frame data.")
+
+    if stats:
+        sorted_vieseme_stats_data = sorted(
+            vieseme_stats_data.items(), key=lambda x: x[1], reverse=True
+        )
+        pprint(sorted_vieseme_stats_data)
 
     return frame_data
 
@@ -197,6 +212,7 @@ def setup_argparse():
         help="The path to the viseme map file.",
         default="viseme_map.json",
     )
+    parser.add_argument("--stats", "-t", help="Print stats", action="store_true")
     parser.add_argument("input_file", help="The path to the whisper json file.")
 
     args = parser.parse_args()
@@ -224,7 +240,7 @@ def main():
         viseme_map = read_viseme_map(args.viseme_map)
         words, words_only_text = get_words_data()
         phonemes = get_phonemes(words_only_text)
-        frame_data = calc_frame_data(words, phonemes, viseme_map)
+        frame_data = calc_frame_data(words, phonemes, viseme_map, args.stats)
         write_to_file("output.txt", frame_data)
 
 
