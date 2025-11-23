@@ -1,0 +1,2 @@
+generate-requirementstxt-file:
+    uv export --format requirements.txt -o requirements.txt    

@@ -1,0 +1,9 @@
+[project]
+name = "2d-lip-sync"
+version = "0.1.1"
+description = "A simple script to 2d lip sync frame data from whisper json data."
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "phonemizer>=3.3.0",
+]
