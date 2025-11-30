@@ -45,7 +45,21 @@ $ python main.py audio.json
 2. 可调整关键帧的偏移
 3. 指定输出的关键帧数据文件
 
+## 备注
+
+`viseme_map.json` 对应 poimiku 的嘴巴贴图，`viseme_map2.json` 对应马娘默认的嘴巴贴图
+
+## Credits
+
+* [poimiku](https://space.bilibili.com/16381701) 提供嘴巴贴图和肯定
+* [Blender Lip Sync Addon by Charley 3D](https://github.com/Charley3d/lip-sync)
+
 ## 更新日志
+
+### v0.1.2
+
+* 修复 `--output` 和输入数据无作用
+* 完善说明文档
 
 ### v0.1.1
 

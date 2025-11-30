@@ -41,8 +41,8 @@ class Word:
     end_time: float
 
 
-def get_words_data() -> tuple[list[Word], list[str]]:
-    with open("audio.json") as f:
+def get_words_data(filename: str) -> tuple[list[Word], list[str]]:
+    with open(filename) as f:
         audio_data = json.load(f)  # pyright: ignore[reportAny]
 
     words: list[Word] = []
@@ -132,6 +132,9 @@ def calc_frame_data(
         duration = word.end_time - word.start_time
 
         if duration <= 0:
+            continue
+
+        if visemes_num == 0:
             continue
 
         if duration >= visemes_num * min_gap_seconds:
@@ -238,10 +241,10 @@ def main():
         logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
         viseme_map = read_viseme_map(args.viseme_map)
-        words, words_only_text = get_words_data()
+        words, words_only_text = get_words_data(args.input_file)
         phonemes = get_phonemes(words_only_text)
         frame_data = calc_frame_data(words, phonemes, viseme_map, args.stats)
-        write_to_file("output.txt", frame_data)
+        write_to_file(args.output, frame_data)
 
 
 if __name__ == "__main__":
