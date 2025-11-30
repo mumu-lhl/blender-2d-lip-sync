@@ -13,9 +13,9 @@ $ whisper audio.flac --model large-v3 --language Chinese --word_timestamps True 
 理论上所有系统都通用，根据自己的系统解决 eSpeak NG 的安装问题，Linux 一般只需一行命令，Windows 不清楚
 
 ```bash
-$ If use uv
+$ # If use uv
 $ uv sync
-$ If use pip
+$ # If use pip
 $ pip install -r requirements.txt
 ```
 
