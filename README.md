@@ -1,6 +1,6 @@
 # A simple script to 2d lip sync frame data from whisper json data.
 
-[English](README_EN.md) | [中文](README.md)
+[English](README.md) | [中文](README_CN.md)
 
 A simple script to generate 2D lip-sync frame data from OpenAI Whisper JSON output.
 
