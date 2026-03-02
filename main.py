@@ -2,22 +2,23 @@
 import argparse
 import json
 import logging
-
+import shutil
+import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 from pprint import pprint
-from typing import cast
+from typing import Any, cast
 
+import pypinyin
 from phonemizer import phonemize
 
 import phoneme_to_viseme
-import pypinyin
 import pinyin_to_phoneme
-from typing import Any
-
 
 SOME_ISO_639_3: list[str] = ["en", "cmn"]
 frame = 30
-min_gap_seconds = 0.05
+min_gap_seconds = 0.075
+max_duration_seconds = 0
 silence_seconds = 0.08
 min_hold_frames = (
     3  # Minimum frames a viseme must hold before changing (prevents flickering)
@@ -67,7 +68,8 @@ def read_viseme_map(filename: str) -> dict[str, int]:
     with open(filename) as f:
         data = cast(dict[str, int], json.load(f))
 
-    if set(data) != {
+    # Check for original phoneme/viseme keys
+    original_keys = {
         "sli",
         "PP",
         "FF",
@@ -83,10 +85,17 @@ def read_viseme_map(filename: str) -> dict[str, int]:
         "ih",
         "oh",
         "ou",
-    }:
-        raise Exception(f"A wrong in {filename}")
+    }
+    # Check for Rhubarb keys
+    rhubarb_keys = {"A", "B", "C", "D", "E", "F", "G", "H", "X"}
 
-    logging.info("Read viseme map file.")
+    keys = set(data.keys())
+    if not (keys == original_keys or keys.issuperset(rhubarb_keys)):
+        logging.warning(
+            f"Viseme map in {filename} does not match expected keys for either Whisper or Rhubarb."
+        )
+
+    logging.info(f"Read viseme map file: {filename}")
 
     return data
 
@@ -344,6 +353,121 @@ def calc_frame_data(
     return frame_data
 
 
+def check_rhubarb():
+    if not shutil.which("rhubarb"):
+        raise FileNotFoundError(
+            "Rhubarb executable not found in PATH. Please install Rhubarb Lip Sync."
+        )
+
+
+def run_rhubarb(audio_file: str, output_file: str):
+    check_rhubarb()
+    cmd = [
+        "rhubarb",
+        audio_file,
+        "-r",
+        "phonetic",
+        "-f",
+        "tsv",
+        "--extendedShapes",
+        "X",
+        "-o",
+        output_file,
+    ]
+    logging.info(f"Running Rhubarb: {' '.join(cmd)}")
+    try:
+        subprocess.run(cmd, check=True, capture_output=True)
+    except subprocess.CalledProcessError as e:
+        logging.error(f"Rhubarb failed: {e.stderr.decode()}")
+        raise
+
+
+def process_rhubarb_output(
+    file_path: str,
+    viseme_map: dict[str, int],
+    min_gap: float = 0.05,
+    max_duration: float = 0,
+    frame_rate: int = 30,
+) -> str:
+    with open(file_path, "r") as f:
+        lines = f.readlines()
+
+    # Rhubarb tsv format:
+    # <timestamp> <viseme>
+    raw_events: list[tuple[float, str]] = []
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        parts = line.split()
+        if len(parts) >= 2:
+            try:
+                timestamp = float(parts[0])
+                viseme_char = parts[1]
+                raw_events.append((timestamp, viseme_char))
+            except ValueError:
+                logging.warning(f"Skipping invalid line: {line}")
+
+    if not raw_events:
+        return ""
+
+    # 1. Min Gap Filter (Anti-jitter) using time
+    stack: list[tuple[float, str]] = []
+
+    for t, viseme in raw_events:
+        if not stack:
+            stack.append((t, viseme))
+            continue
+
+        while stack:
+            prev_t, _ = stack[-1]
+            diff = t - prev_t
+
+            if diff < min_gap:
+                stack.pop()
+            else:
+                break
+
+        stack.append((t, viseme))
+
+    if stack and stack[0][0] > 0:
+        stack.insert(0, (0.0, "X"))
+    elif not stack:
+        stack.append((0.0, "X"))
+
+    # 2. Max Duration Filter
+    final_events: list[tuple[float, str]] = []
+
+    for i in range(len(stack)):
+        curr_t, curr_vis = stack[i]
+        final_events.append((curr_t, curr_vis))
+
+        if i < len(stack) - 1:
+            next_t = stack[i + 1][0]
+            duration = next_t - curr_t
+        else:
+            continue
+
+        if max_duration > 0 and curr_vis != "X" and duration > max_duration:
+            break_t = curr_t + max_duration
+            if break_t < next_t:
+                final_events.append((break_t, "X"))
+
+    # 3. Map to output frames
+    output_lines: list[str] = []
+    for t, vis in final_events:
+        frame_num = round(t * frame_rate)
+
+        # Mapping
+        val = viseme_map.get(vis)
+        if val is not None:
+            output_lines.append(f"{frame_num} {val}")
+        else:
+            logging.warning(f"Unknown viseme char: {vis}")
+
+    return "\n".join(output_lines)
+
+
 def write_to_file(filename: str, content: str) -> None:
     with open(filename, "w", encoding="utf-8") as f:
         f.write(content)
@@ -370,6 +494,12 @@ def setup_argparse():
         "-s",
         help="Minimum duration of a silence keyframe",
         default=silence_seconds,
+    )
+    parser.add_argument(
+        "--max-duration-seconds",
+        help="Maximum duration of a non-silence keyframe (seconds). 0 to disable.",
+        default=max_duration_seconds,
+        type=float,
     )
     parser.add_argument(
         "--viseme_map",
@@ -400,19 +530,62 @@ def main():
     global frame
     global min_gap_seconds
     global silence_seconds
+    global min_hold_frames
+    global max_duration_seconds
 
     if args.input_file:
         frame = int(args.frame)
         min_gap_seconds = float(args.min_gap_seconds)
         silence_seconds = float(args.silence_seconds)
+        max_duration_seconds = float(args.max_duration_seconds)
+
+        # Update min_hold_frames based on min_gap_seconds
+        min_hold_frames = max(1, round(min_gap_seconds * frame))
 
         logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
 
-        viseme_map = read_viseme_map(args.viseme_map)
-        words, words_only_text = get_words_data(args.input_file)
-        phonemes = get_phonemes(words_only_text, args.language)
-        frame_data = calc_frame_data(words, phonemes, viseme_map, args.stats)
-        write_to_file(args.output, frame_data)
+        input_path = Path(args.input_file)
+        suffix = input_path.suffix.lower()
+
+        if suffix in [".wav", ".ogg"]:
+            # Rhubarb mode
+            logging.info("Detected audio file. Using Rhubarb Lip Sync.")
+
+            map_file = args.viseme_map
+            # If the user used the default map file, and it's an audio file,
+            # prefer rhubarb_map.json if it exists.
+            if map_file == "viseme_map.json" and Path("rhubarb_map.json").exists():
+                logging.info("Using rhubarb_map.json for audio input.")
+                map_file = "rhubarb_map.json"
+
+            viseme_map = read_viseme_map(map_file)
+
+            # Temporary output file for Rhubarb
+            temp_dat = input_path.with_suffix(".tsv")
+            try:
+                run_rhubarb(str(input_path), str(temp_dat))
+                frame_data = process_rhubarb_output(
+                    str(temp_dat),
+                    viseme_map,
+                    min_gap=min_gap_seconds,
+                    max_duration=max_duration_seconds,
+                    frame_rate=frame,
+                )
+                write_to_file(args.output, frame_data)
+            finally:
+                if temp_dat.exists():
+                    try:
+                        temp_dat.unlink()
+                    except OSError:
+                        pass
+
+        else:
+            # Existing Whisper/Json mode
+            viseme_map = read_viseme_map(args.viseme_map)
+            words, words_only_text = get_words_data(args.input_file)
+            phonemes = get_phonemes(words_only_text, args.language)
+            frame_data = calc_frame_data(words, phonemes, viseme_map, args.stats)
+            write_to_file(args.output, frame_data)
 
 
 if __name__ == "__main__":

@@ -1,12 +1,19 @@
-# A simple script to 2d lip sync frame data from whisper json data.
+# A simple script to generate 2D lip-sync frame data.
 
 [English](README.md) | [中文](README_CN.md)
 
-A simple script to generate 2D lip-sync frame data from OpenAI Whisper JSON output.
+A simple script to generate 2D lip-sync frame data from:
+- OpenAI Whisper JSON output
+- Audio files (`.wav`, `.ogg`) via Rhubarb Lip Sync
 
 ## Usage Instructions
 
-This script requires Whisper JSON data as input. You can generate it using a command like this:
+This script supports two input modes:
+
+1. Whisper JSON mode
+2. Audio mode (Rhubarb)
+
+For Whisper JSON mode, you can generate input with a command like this:
 
 ```bash
 $ whisper audio.flac --model large-v3 --language English --word_timestamps True --output_format json
@@ -14,7 +21,12 @@ $ whisper audio.flac --model large-v3 --language English --word_timestamps True 
 
 ### Installation
 
-The script should work on all systems. Install **eSpeak NG** according to your operating system. For Linux, it's usually a single command; for Windows, please refer to the eSpeak NG documentation.
+The script should work on all systems.
+
+- Whisper JSON mode requires **eSpeak NG**.
+- Audio mode requires **Rhubarb Lip Sync** executable in `PATH` (`rhubarb` command available).
+
+Install eSpeak NG according to your operating system. For Linux, it's usually a single command; for Windows, please refer to the eSpeak NG documentation.
 
 ```bash
 $ # If using uv
@@ -25,10 +37,16 @@ $ pip install -r requirements.txt
 
 ### Script Usage
 
-Assuming your Whisper JSON file is named `audio.json`:
+Whisper JSON mode:
 
 ```bash
 $ python main.py audio.json -l en
+```
+
+Audio mode (Rhubarb):
+
+```bash
+$ python main.py audio.wav
 ```
 
 ### Script Arguments
@@ -36,9 +54,15 @@ $ python main.py audio.json -l en
 * `--frame` `-f`: Target frame rate in Blender (default: `30`)
 * `--min-gap-seconds` `-g`: Minimum interval between keyframes in seconds (default: `0.18`)
 * `--silence-seconds` `-s`: Duration of silence keyframes in seconds (default: `0.22`)
-* `--viseme_map` `-m`: Path to the phoneme-to-viseme mapping file (default: `viseme_map.json`)
+* `--max-duration-seconds`: Maximum duration of a non-silence keyframe in seconds (default: `0`, disabled)
+* `--viseme_map` `-m`: Path to the viseme mapping file (default: `viseme_map.json`)
 * `--language` `-l`: Language code, `zh` for Chinese, `en` for English (default: `en`)
 * `--output` `-o`: Path to the output keyframe data file (default: `output.txt`)
+
+Rhubarb-specific behavior:
+
+* If input file extension is `.wav` or `.ogg`, the script runs Rhubarb mode automatically.
+* If `--viseme_map` is left as default (`viseme_map.json`) and `rhubarb_map.json` exists, the script automatically uses `rhubarb_map.json`.
 
 ## Working with Example .blend
 
@@ -52,8 +76,12 @@ The panel has 3 parts:
 
 ## Notes
 
-* `viseme_map.json` is designed for **poimiku** mouth textures.
-* `viseme_map2.json` is designed for default **Uma Musume** mouth textures.
+* Whisper JSON mode:
+  * `viseme_map.json` is designed for **poimiku** mouth textures.
+  * `viseme_map2.json` is designed for default **Uma Musume** mouth textures.
+* Rhubarb mode:
+  * `rhubarb_map.json` is designed for **poimiku** mouth textures.
+  * `rhubarb_map2.json` is designed for default **Uma Musume** mouth textures.
 
 ## Credits
 
